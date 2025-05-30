@@ -84,6 +84,9 @@ export class DeepMerger<TContextArgs extends any[]> {
     ...context: TContextArgs
   ): any {
     if (isNonNullObject(source) && isNonNullObject(target)) {
+      // Track whether the target was modified earlier or not to make sure
+      // we're not trying to delete from a frozen target.
+      let targetModified = false;
       Object.keys(source).forEach((sourceKey) => {
         if (hasOwnProperty.call(target, sourceKey)) {
           const targetValue = target[sourceKey];
@@ -99,6 +102,7 @@ export class DeepMerger<TContextArgs extends any[]> {
             if (result !== targetValue) {
               target = this.shallowCopyForMerge(target);
               target[sourceKey] = result;
+              targetModified = true;
             }
           }
         } else {
@@ -106,11 +110,16 @@ export class DeepMerger<TContextArgs extends any[]> {
           // the source, and the recursion can terminate here.
           target = this.shallowCopyForMerge(target);
           target[sourceKey] = source[sourceKey];
+          targetModified = true;
         }
       });
 
       Object.keys(target).forEach((targetKey) => {
         if (!hasOwnProperty.call(source, targetKey)) {
+          if (!targetModified) {
+            target = this.shallowCopyForMerge(target);
+            targetModified = true;
+          }
           delete target[targetKey];
         }
       });

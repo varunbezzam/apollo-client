@@ -180,6 +180,16 @@ describe("mergeDeep", function () {
     });
   });
 
+  it("supports deleting with arrays also", function () {
+    const merger = new DeepMerger(DeleteMissingKeysReconciler);
+    expect(
+      merger.mergeAndDeleteMissingKeys(
+        ["1", "2", "3", "4", "5"],
+        ["1", "2", "3", "4"]
+      )
+    ).toEqual(["1", "2", "3", "4"]);
+  });
+
   it("supports deleting missing keys in the target", function () {
     const merger = new DeepMerger(DeleteMissingKeysReconciler);
 
