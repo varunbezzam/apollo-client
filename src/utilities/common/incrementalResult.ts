@@ -7,7 +7,11 @@ import type {
 } from "../../link/core/index.js";
 import { isNonNullObject } from "./objects.js";
 import { isNonEmptyArray } from "./arrays.js";
+<<<<<<< Updated upstream
 import { DeepMerger, IS_APOLLO_INCREMENTAL_RESULT_DATA } from "./mergeDeep.js";
+=======
+import { DeepMerger, IS_APOLLO_INCREMENTAL_RESULT_LEAF } from "./mergeDeep.js";
+>>>>>>> Stashed changes
 
 export function isExecutionPatchIncrementalResult<T>(
   value: FetchResult<T>
@@ -92,20 +96,46 @@ export function mergeIncrementalData<TData extends object>(
   result: ExecutionPatchResult<TData>
 ) {
   let mergedData = prevResult;
-  const merger = new DeepMerger();
+  const merger = new DeepMerger(); // DeepMerger needs to be aware of IS_APOLLO_PATCH_LEAF
   if (
     isExecutionPatchIncrementalResult(result) &&
     isNonEmptyArray(result.incremental)
   ) {
     result.incremental.forEach(({ data, path }) => {
+      let dataToEmbed = data;
+
+      // Only tag if the leaf data is an object/array. Primitives don't need tagging
+      // as the merge logic for primitives effectively replaces them anyway.
+      // The tag is primarily to stop deep recursion into what should be a replacement unit.
+      if (isNonNullObject(data)) {
+        // Shallow clone the leaf data and tag it.
+        // This ensures the original patch data isn't mutated and the tag is specific to this merge context.
+        const clonedAndTaggedLeafData =
+          Array.isArray(data) ? [...data] : { ...data };
+
+        Object.defineProperty(
+          clonedAndTaggedLeafData,
+          IS_APOLLO_INCREMENTAL_RESULT_LEAF,
+          {
+            value: true,
+            writable: false, // The value should not be changed
+            enumerable: false,
+            configurable: true, // Allows the property to be deleted if necessary
+          }
+        );
+        dataToEmbed = clonedAndTaggedLeafData as TData;
+      }
+
+      let reconstructedPathObject = dataToEmbed;
       for (let i = path.length - 1; i >= 0; --i) {
         const key = path[i];
         const isNumericKey = !isNaN(+key);
         const parent: Record<string | number, any> = isNumericKey ? [] : {};
-        parent[key] = data;
-        data = parent as typeof data;
+        parent[key] = reconstructedPathObject;
+        reconstructedPathObject = parent as typeof reconstructedPathObject;
       }
-      mergedData = merger.merge(mergedData, data);
+
+      mergedData = merger.merge(mergedData, reconstructedPathObject);
     });
   }
   return mergedData as TData;
