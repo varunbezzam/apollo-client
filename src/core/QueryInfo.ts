@@ -2,8 +2,10 @@ import type { DocumentNode, GraphQLError } from "graphql";
 import { equal } from "@wry/equality";
 
 import type { Cache, ApolloCache } from "../cache/index.js";
-import { DeepMerger } from "../utilities/index.js";
-import { mergeIncrementalData } from "../utilities/index.js";
+import {
+  DeepMerger,
+  mergeIncrementalDeferredData,
+} from "../utilities/index.js";
 import type { WatchQueryOptions, ErrorPolicy } from "./watchQueryOptions.js";
 import type { ObservableQuery } from "./ObservableQuery.js";
 import { reobserveCacheFirst } from "./ObservableQuery.js";
@@ -395,7 +397,12 @@ export class QueryInfo {
     this.reset();
 
     if ("incremental" in result && isNonEmptyArray(result.incremental)) {
-      const mergedData = mergeIncrementalData(this.getDiff().result, result);
+      // CUSTOM FOR ZIP: Merge the incremental data with the existing cache data
+      // but overwrite the data already present in the cache when there is a key collision.
+      const mergedData = mergeIncrementalDeferredData(
+        this.getDiff().result,
+        result
+      );
       result.data = mergedData;
 
       // Detect the first chunk of a deferred query and merge it with existing
@@ -405,11 +412,6 @@ export class QueryInfo {
       // initial deferred server data with existing cache data.
     } else if ("hasNext" in result && result.hasNext) {
       const diff = this.getDiff();
-      // CUSTOM FOR ZIP: Explicitly clear out missing keys from the existing cache data
-      // if they are not present in the initial chunk of the deferred query.
-      // This is required to ensure that if the incremental data which includes these missing keys
-      // is merged with the existing cache data, the incremental data takes precedence and is used as the result
-      // versus being folded into the existing cache data.
       result.data = merger.merge(diff.result, result.data);
     }
 

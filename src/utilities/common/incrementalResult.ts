@@ -7,7 +7,7 @@ import type {
 } from "../../link/core/index.js";
 import { isNonNullObject } from "./objects.js";
 import { isNonEmptyArray } from "./arrays.js";
-import { DeepMerger, IS_APOLLO_INCREMENTAL_RESULT_LEAF } from "./mergeDeep.js";
+import { DeepMerger, IS_APOLLO_INCREMENTAL_RESULT_DATA } from "./mergeDeep.js";
 
 export function isExecutionPatchIncrementalResult<T>(
   value: FetchResult<T>
@@ -39,12 +39,12 @@ export function isApolloPayloadResult(
   return isNonNullObject(value) && "payload" in value;
 }
 
-export function mergeIncrementalData<TData extends object>(
+export function mergeIncrementalDeferredData<TData extends object>(
   prevResult: TData,
   result: ExecutionPatchResult<TData>
 ) {
   let mergedData = prevResult;
-  const merger = new DeepMerger(); // DeepMerger needs to be aware of IS_APOLLO_PATCH_LEAF
+  const merger = new DeepMerger();
   if (
     isExecutionPatchIncrementalResult(result) &&
     isNonEmptyArray(result.incremental)
@@ -52,18 +52,16 @@ export function mergeIncrementalData<TData extends object>(
     result.incremental.forEach(({ data, path }) => {
       let dataToEmbed = data;
 
-      // Only tag if the leaf data is an object/array. Primitives don't need tagging
+      // Only tag if the data is an object/array. Primitives don't need tagging
       // as the merge logic for primitives effectively replaces them anyway.
-      // The tag is primarily to stop deep recursion into what should be a replacement unit.
       if (isNonNullObject(data)) {
-        // Shallow clone the leaf data and tag it.
-        // This ensures the original patch data isn't mutated and the tag is specific to this merge context.
-        const clonedAndTaggedLeafData =
+        // Shallow clone the data and tag it.
+        const clonedAndTaggedData =
           Array.isArray(data) ? [...data] : { ...data };
 
         Object.defineProperty(
-          clonedAndTaggedLeafData,
-          IS_APOLLO_INCREMENTAL_RESULT_LEAF,
+          clonedAndTaggedData,
+          IS_APOLLO_INCREMENTAL_RESULT_DATA,
           {
             value: true,
             writable: false, // The value should not be changed
@@ -71,7 +69,7 @@ export function mergeIncrementalData<TData extends object>(
             configurable: true, // Allows the property to be deleted if necessary
           }
         );
-        dataToEmbed = clonedAndTaggedLeafData as TData;
+        dataToEmbed = clonedAndTaggedData as TData;
       }
 
       let reconstructedPathObject = dataToEmbed;
@@ -83,7 +81,31 @@ export function mergeIncrementalData<TData extends object>(
         reconstructedPathObject = parent as typeof reconstructedPathObject;
       }
 
-      mergedData = merger.merge(mergedData, reconstructedPathObject);
+      mergedData = merger.mergeIncremental(mergedData, reconstructedPathObject);
+    });
+  }
+  return mergedData as TData;
+}
+
+export function mergeIncrementalData<TData extends object>(
+  prevResult: TData,
+  result: ExecutionPatchResult<TData>
+) {
+  let mergedData = prevResult;
+  const merger = new DeepMerger();
+  if (
+    isExecutionPatchIncrementalResult(result) &&
+    isNonEmptyArray(result.incremental)
+  ) {
+    result.incremental.forEach(({ data, path }) => {
+      for (let i = path.length - 1; i >= 0; --i) {
+        const key = path[i];
+        const isNumericKey = !isNaN(+key);
+        const parent: Record<string | number, any> = isNumericKey ? [] : {};
+        parent[key] = data;
+        data = parent as typeof data;
+      }
+      mergedData = merger.merge(mergedData, data);
     });
   }
   return mergedData as TData;

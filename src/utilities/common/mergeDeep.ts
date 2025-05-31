@@ -32,7 +32,7 @@ export function mergeDeep<T extends any[]>(
 }
 
 // Symbol to mark leaf data from incremental results.
-export const IS_APOLLO_INCREMENTAL_RESULT_LEAF =
+export const IS_APOLLO_INCREMENTAL_RESULT_DATA =
   "is_apollo_incremental_result_data";
 
 // In almost any situation where you could succeed in getting the
@@ -69,27 +69,18 @@ const defaultReconciler: ReconcilerFunction<any[]> = function (
   return this.merge(target[property], source[property]);
 };
 
-export const DeleteMissingKeysReconciler: ReconcilerFunction<any[]> = function (
-  target,
-  source,
-  property
-) {
-  return this.mergeAndDeleteMissingKeys(target[property], source[property]);
-};
-
 export class DeepMerger<TContextArgs extends any[]> {
   constructor(
     private reconciler: ReconcilerFunction<TContextArgs> = defaultReconciler as any as ReconcilerFunction<TContextArgs>
   ) {}
 
-  public mergeAndDeleteMissingKeys(
+  public mergeIncremental(
     target: any,
     source: any,
     ...context: TContextArgs
   ): any {
     if (isNonNullObject(source) && isNonNullObject(target)) {
-      // Track whether the target was modified earlier or not to make sure
-      // we're not trying to delete from a frozen target.
+      const originalSource = source;
       let targetModified = false;
       Object.keys(source).forEach((sourceKey) => {
         if (hasOwnProperty.call(target, sourceKey)) {
@@ -105,28 +96,40 @@ export class DeepMerger<TContextArgs extends any[]> {
             // the merge changed nothing about the structure of the target.
             if (result !== targetValue) {
               target = this.shallowCopyForMerge(target);
-              target[sourceKey] = result;
               targetModified = true;
+              target[sourceKey] = result;
             }
           }
         } else {
           // If there is no collision, the target can safely share memory with
           // the source, and the recursion can terminate here.
           target = this.shallowCopyForMerge(target);
-          target[sourceKey] = source[sourceKey];
           targetModified = true;
+          target[sourceKey] = source[sourceKey];
         }
       });
 
-      Object.keys(target).forEach((targetKey) => {
-        if (!hasOwnProperty.call(source, targetKey)) {
-          if (!targetModified) {
-            target = this.shallowCopyForMerge(target);
-            targetModified = true;
+      // If the source contains the IS_APOLLO_INCREMENTAL_RESULT_DATA flag,
+      // it means the source is the actual data from the incremental result.
+      // In this case, we can overwrite the target directly with the source
+      // when they share the same keys.
+      if (originalSource[IS_APOLLO_INCREMENTAL_RESULT_DATA]) {
+        Object.keys(originalSource).forEach((sourceKey) => {
+          if (hasOwnProperty.call(target, sourceKey)) {
+            if (!targetModified) {
+              target = this.shallowCopyForMerge(target);
+              targetModified = true;
+            }
+            target[sourceKey] = originalSource[sourceKey];
           }
-          delete target[targetKey];
-        }
-      });
+        });
+        // We can also clear out any keys from the target that are not present in the source.
+        Object.keys(target).forEach((targetKey) => {
+          if (!hasOwnProperty.call(originalSource, targetKey)) {
+            delete target[targetKey];
+          }
+        });
+      }
 
       return target;
     }
@@ -137,7 +140,6 @@ export class DeepMerger<TContextArgs extends any[]> {
 
   public merge(target: any, source: any, ...context: TContextArgs): any {
     if (isNonNullObject(source) && isNonNullObject(target)) {
-      const originalSource = source;
       Object.keys(source).forEach((sourceKey) => {
         if (hasOwnProperty.call(target, sourceKey)) {
           const targetValue = target[sourceKey];
@@ -162,18 +164,6 @@ export class DeepMerger<TContextArgs extends any[]> {
           target[sourceKey] = source[sourceKey];
         }
       });
-
-      if (
-        isNonNullObject(source) &&
-        source[IS_APOLLO_INCREMENTAL_RESULT_LEAF] &&
-        isNonNullObject(originalSource)
-      ) {
-        Object.keys(originalSource).forEach((sourceKey) => {
-          if (hasOwnProperty.call(target, sourceKey)) {
-            target[sourceKey] = originalSource[sourceKey];
-          }
-        });
-      }
 
       return target;
     }
