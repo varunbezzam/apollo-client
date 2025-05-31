@@ -31,6 +31,10 @@ export function mergeDeep<T extends any[]>(
   return mergeDeepArray(sources);
 }
 
+// Symbol to mark leaf data from incremental results.
+export const IS_APOLLO_INCREMENTAL_RESULT_LEAF =
+  "is_apollo_incremental_result_data";
+
 // In almost any situation where you could succeed in getting the
 // TypeScript compiler to infer a tuple type for the sources array, you
 // could just use mergeDeep instead of mergeDeepArray, so instead of
@@ -133,6 +137,7 @@ export class DeepMerger<TContextArgs extends any[]> {
 
   public merge(target: any, source: any, ...context: TContextArgs): any {
     if (isNonNullObject(source) && isNonNullObject(target)) {
+      const originalSource = source;
       Object.keys(source).forEach((sourceKey) => {
         if (hasOwnProperty.call(target, sourceKey)) {
           const targetValue = target[sourceKey];
@@ -157,6 +162,18 @@ export class DeepMerger<TContextArgs extends any[]> {
           target[sourceKey] = source[sourceKey];
         }
       });
+
+      if (
+        isNonNullObject(source) &&
+        source[IS_APOLLO_INCREMENTAL_RESULT_LEAF] &&
+        isNonNullObject(originalSource)
+      ) {
+        Object.keys(originalSource).forEach((sourceKey) => {
+          if (hasOwnProperty.call(target, sourceKey)) {
+            target[sourceKey] = originalSource[sourceKey];
+          }
+        });
+      }
 
       return target;
     }

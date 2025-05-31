@@ -2,7 +2,7 @@ import type { DocumentNode, GraphQLError } from "graphql";
 import { equal } from "@wry/equality";
 
 import type { Cache, ApolloCache } from "../cache/index.js";
-import { DeepMerger, DeleteMissingKeysReconciler } from "../utilities/index.js";
+import { DeepMerger } from "../utilities/index.js";
 import { mergeIncrementalData } from "../utilities/index.js";
 import type { WatchQueryOptions, ErrorPolicy } from "./watchQueryOptions.js";
 import type { ObservableQuery } from "./ObservableQuery.js";
@@ -386,7 +386,7 @@ export class QueryInfo {
     >,
     cacheWriteBehavior: CacheWriteBehavior
   ) {
-    const deleteMissingKeysMerger = new DeepMerger(DeleteMissingKeysReconciler);
+    const merger = new DeepMerger();
     const graphQLErrors =
       isNonEmptyArray(result.errors) ? result.errors.slice(0) : [];
 
@@ -410,10 +410,7 @@ export class QueryInfo {
       // This is required to ensure that if the incremental data which includes these missing keys
       // is merged with the existing cache data, the incremental data takes precedence and is used as the result
       // versus being folded into the existing cache data.
-      result.data = deleteMissingKeysMerger.mergeAndDeleteMissingKeys(
-        diff.result,
-        result.data
-      );
+      result.data = merger.merge(diff.result, result.data);
     }
 
     this.graphQLErrors = graphQLErrors;
