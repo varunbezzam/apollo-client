@@ -86,6 +86,7 @@ export class QueryInfo {
   stopped = false;
 
   private cache: ApolloCache<any>;
+  private mergedDataForDeferred?: any;
 
   constructor(
     queryManager: QueryManager<any>,
@@ -128,6 +129,9 @@ export class QueryInfo {
     if (!equal(query.variables, this.variables)) {
       this.lastDiff = void 0;
     }
+
+    // CUSTOM FOR ZIP: Reset custom merge data on init
+    this.mergedDataForDeferred = undefined;
 
     Object.assign(this, {
       document: query.document,
@@ -399,6 +403,11 @@ export class QueryInfo {
       const mergedData = mergeIncrementalData(this.getDiff().result, result);
       result.data = mergedData;
 
+      this.mergedDataForDeferred = mergeIncrementalData(
+        this.mergedDataForDeferred,
+        result
+      );
+
       // Detect the first chunk of a deferred query and merge it with existing
       // cache data. This ensures a `cache-first` fetch policy that returns
       // partial cache data or a `cache-and-network` fetch policy that already
@@ -411,17 +420,25 @@ export class QueryInfo {
       // This is required to ensure that if the incremental data which includes these missing keys
       // is merged with the existing cache data, the incremental data takes precedence and is used as the result
       // versus being folded into the existing cache data.
-      if (
-        options.fetchPolicy !== "cache-first" &&
-        options.fetchPolicy !== "cache-and-network"
-      ) {
-        result.data = deleteMissingKeysMerger.mergeAndDeleteMissingKeys(
+      this.mergedDataForDeferred =
+        deleteMissingKeysMerger.mergeAndDeleteMissingKeys(
           diff.result,
           result.data
         );
-      } else {
-        result.data = merger.merge(diff.result, result.data);
-      }
+      result.data = merger.merge(diff.result, result.data);
+    }
+
+    // If this is the final incremental chunk of a deferred query,
+    // and we have stored mergedDataForDeferred,
+    // use it as the definitive result.data.
+    if (
+      "incremental" in result &&
+      "hasNext" in result &&
+      !result.hasNext && // It's the last chunk
+      this.mergedDataForDeferred !== undefined
+    ) {
+      result.data = this.mergedDataForDeferred;
+      this.mergedDataForDeferred = undefined; // Reset after use
     }
 
     this.graphQLErrors = graphQLErrors;
