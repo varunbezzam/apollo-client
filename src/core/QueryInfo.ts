@@ -401,12 +401,11 @@ export class QueryInfo {
 
     if ("incremental" in result && isNonEmptyArray(result.incremental)) {
       const mergedData = mergeIncrementalData(this.getDiff().result, result);
-      result.data = mergedData;
-
       this.mergedDataForDeferred = mergeIncrementalData(
         this.mergedDataForDeferred,
         result
       );
+      result.data = mergedData;
 
       // Detect the first chunk of a deferred query and merge it with existing
       // cache data. This ensures a `cache-first` fetch policy that returns
